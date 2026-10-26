@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install checksum-pinned Gitleaks
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$RUNNER_TEMP/gitleaks.tar.gz"
+          printf '%s  %s\n' \
+            551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb \
+            "$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan complete Git history
+        run: '"$RUNNER_TEMP/gitleaks" git . --redact --no-banner --log-opts="--all"'
+      - name: Test draft release lifecycle
+        run: python3 -m unittest discover -s scripts -p 'test_publish_draft.py'
+
+  check:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefix backend
+      - name: Audit runtime dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Check types and formatting
+        run: |
+          npm --prefix backend run typecheck
+          npm run format:check
+      - name: Test backend
+        run: npm --prefix backend test
+      - name: Check source tree
+        run: git diff --exit-code
+
+  native:
+    name: Swift checks
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test Swift package
+        run: swift test --package-path app/ClientCore --scratch-path "$RUNNER_TEMP/libnutri-tests"
+      - name: Check Swift formatting
+        run: swift format lint --strict --recursive app/App app/ClientCore/Sources app/ClientCore/Tests app/DeviceTests
+      - name: Check source tree
+        run: git diff --exit-code
+
+  build:
+    name: Build backend
+    needs: [check, native, secrets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build container
+        run: docker build --tag libnutri:ci .
+      - name: Export backend distribution
+        run: |
+          mkdir -p "$RUNNER_TEMP/backend-package" "$RUNNER_TEMP/distribution"
+          container=$(docker create libnutri:ci)
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp "$container:/app/backend" "$RUNNER_TEMP/backend-package/backend"
+          docker cp "$container:/app/landing" "$RUNNER_TEMP/backend-package/landing"
+          cp LICENSE THIRD_PARTY.md "$RUNNER_TEMP/backend-package/"
+          tar -czf "$RUNNER_TEMP/distribution/libnutri-backend.tar.gz" -C "$RUNNER_TEMP/backend-package" .
+      - name: Upload distribution
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: libnutri-backend
+          path: ${{ runner.temp }}/distribution/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          overwrite: true
+
+  ios:
+    name: Build · iPhone
+    needs: [check, native, secrets]
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check iOS SDK
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Install XcodeGen
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Prepare isolated Xcode project
+        run: |
+          mkdir -p "$RUNNER_TEMP/libnutri-ios"
+          rsync -a app/ "$RUNNER_TEMP/libnutri-ios/"
+          cd "$RUNNER_TEMP/libnutri-ios"
+          xcodegen generate
+      - name: Archive unsigned iPhone application
+        run: >-
+          xcodebuild -project "$RUNNER_TEMP/libnutri-ios/NutritionTracker.xcodeproj"
+          -scheme NutritionTracker -configuration Release -destination 'generic/platform=iOS'
+          -derivedDataPath "$RUNNER_TEMP/libnutri-derived"
+          -archivePath "$RUNNER_TEMP/libnutri.xcarchive"
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= archive
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/distribution"
+          cp -R "$RUNNER_TEMP/libnutri.xcarchive/Products/Applications/libnutri.app" "$RUNNER_TEMP/ipa/Payload/" 2>/dev/null || cp -R "$RUNNER_TEMP/libnutri.xcarchive/Products/Applications/NutritionTracker.app" "$RUNNER_TEMP/ipa/Payload/"
+          ditto -c -k --keepParent "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/distribution/libnutri-iphone-unsigned.ipa"
+          unzip -t "$RUNNER_TEMP/distribution/libnutri-iphone-unsigned.ipa" >/dev/null
+      - name: Check source tree
+        run: git diff --exit-code
+      - name: Upload distribution
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: libnutri-iphone
+          path: ${{ runner.temp }}/distribution/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          overwrite: true
+
+  release:
+    name: Draft release
+    needs: [build, ios]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: draft-release
+      cancel-in-progress: false
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download verified distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Replace version draft and its assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/publish-draft.py artifacts

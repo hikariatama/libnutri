@@ -1,0 +1,71 @@
+name: NutritionTracker
+options:
+  bundleIdPrefix: so.avx
+  deploymentTarget:
+    iOS: "27.0"
+  xcodeVersion: "27.0"
+packages:
+  NutritionCore:
+    path: ClientCore
+settings:
+  base:
+    DEVELOPMENT_TEAM: A79J78NSJA
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: "27.0"
+targets:
+  NutritionTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - Resources
+      - path: App/Resources
+        buildPhase: resources
+    dependencies:
+      - package: NutritionCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: so.avx.Nutri
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: libnutri
+        CFBundleShortVersionString: "0.0.1"
+        CFBundleVersion: "9"
+        CFBundleURLTypes:
+          - CFBundleURLName: so.avx.Nutri.oauth
+            CFBundleURLSchemes: [nutritiontracker]
+        UIUserInterfaceStyle: Dark
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en]
+        NSMicrophoneUsageDescription: Record a food description to transcribe with OpenRouter.
+        UIAppFonts: [Huninn-Regular.ttf]
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+  NutritionTrackerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [DeviceTests]
+    dependencies:
+      - target: NutritionTracker
+      - package: NutritionCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  NutritionTracker:
+    build:
+      targets:
+        NutritionTracker: all
+        NutritionTrackerTests: [test]
+    test:
+      targets: [NutritionTrackerTests]

@@ -1,0 +1,9 @@
+node_modules*
+backend/dist
+backend/package-lock.json
+app
+landing/fonts
+landing/logo.svg
+test-results
+playwright-report
+LICENSE

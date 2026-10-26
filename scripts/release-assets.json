@@ -1,0 +1,10 @@
+[
+  {
+    "name": "libnutri-iphone-unsigned.ipa",
+    "platform": "iPhone"
+  },
+  {
+    "name": "libnutri-backend.tar.gz",
+    "platform": "Server"
+  }
+]

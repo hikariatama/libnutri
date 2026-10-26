@@ -1,0 +1,10 @@
+{
+  "name": "libnutri-repository",
+  "private": true,
+  "scripts": {
+    "check": "sh scripts/check.sh",
+    "format": "backend/node_modules/.bin/prettier --write .",
+    "format:check": "backend/node_modules/.bin/prettier --check ."
+  },
+  "license": "AGPL-3.0-only"
+}

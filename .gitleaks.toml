@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated dependencies, build products and isolated browser artifacts"
+paths = ['''(^|/)(node_modules( \d+)?|dist|\.build|test-results|playwright-report|data)/''']

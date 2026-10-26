@@ -1,0 +1,34 @@
+[
+  {
+    "id": "ru-explicit-per100-packaging",
+    "input": "Съел 200 г йогурта: 102 ккал, 5 г белка и 1 г клетчатки на 100 г. Упаковка весит 15 г и не входит в эти 200 г.",
+    "expected": {"calories": 204, "protein": 10, "fiber": 2},
+    "check": "Exact arithmetic; do not add packaging mass."
+  },
+  {
+    "id": "en-explicit",
+    "input": "One meal: exactly 420 kcal, 28 g protein, 8 g fiber.",
+    "expected": {"calories": 420, "protein": 28, "fiber": 8},
+    "check": "Explicit values have priority."
+  },
+  {
+    "id": "mixed-transliterated",
+    "input": "Съел two eggs и один ban mi с курицей, примерно 250 г.",
+    "check": "Understand mixed language and phonetic Vietnamese food name; estimate all three numeric values."
+  },
+  {
+    "id": "ru-words-approximate",
+    "input": "Две тарелки фо бо, примерно по триста граммов, плюс-минус немного.",
+    "check": "Understand numerals written as words and conservative approximate quantities."
+  },
+  {
+    "id": "en-incomplete",
+    "input": "A bowl of rice with grilled chicken.",
+    "check": "Estimate every nutrient; no nulls or false precision."
+  },
+  {
+    "id": "calorie-boundary",
+    "input": "This meal has exactly 3000 kcal, 100 g protein and 10 g fiber.",
+    "check": "Correct model arithmetic still violates the application's exclusive limit: retry, then fail without overwriting previous values."
+  }
+]
